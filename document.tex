@@ -1,0 +1,301 @@
+\documentclass[]{article}
+
+\usepackage{minted}
+\input{preamble.sty}
+
+\usepackage{tikz,lipsum,lmodern}
+\usepackage[most]{tcolorbox}
+\usepackage{mathtools}
+
+%opening
+\title{An Intuition For Decorated Traversable Monads}
+\author{Lawrence Dunn\footnote{Advised by Val Tannen and Steve Zdancewic. Mistakes are mine.}}
+\date{}
+\usepackage{syntax}
+
+\newcommand{\coq}[1]{\mintinline{coq}{#1}}
+
+\begin{document}
+
+\maketitle
+
+\textbf{Assumed background}: Other than some familiarity with the use of monads in functional programming, not much background is necessary to solve the exercises below, although some jargon is provided for readers who like that sort of thing. A reader unfamiliar with the use of monads in functional programming may want to read this blog post in lieu of this document:
+\url{http://blog.sigfpe.com/2006/08/you-could-have-invented-monads-and.html}
+
+\vspace{1cm}
+
+Consider the grammar of the simply-typed lambda calculus, or STLC:
+
+\begin{align*}
+t &= \coq{var}\ x \quad|\quad \coq{ap}\ t_1\ t_2  \quad|\quad \coq{lam}\ (x : \tau)\ t\\ 
+\end{align*}
+
+This grammar forms perhaps the simplest non-trivial example of what we have been calling a decorated traversable monad (DTM). By one definition, DTMs are monads that are additionally equipped with two extra structures:
+\begin{enumerate}
+    \item A `decoration,' the unofficial name we have given to a particular kind of coaction of endofunctors (which is honestly much simpler than it sounds)
+    \item A traversal in the sense of \cite{2012:traversals}
+\end{enumerate}
+
+We additionally impose certain equations relating these structures to the underlying monad. The resulting abstraction seems adequate to develop an appreciable amount of syntax theory in general, untangled from the particulars of any one definite syntax. Roughly, the monad structure provides the ability to substitute terms for variables, the traversal an ability to iterate over the set of variable occurrences, and the decoration the ability to query, for each variable, what binding context it occurs in. The purpose of the following exercises is to describe how one might uncover the operations and coherence laws of DTMs by considering the syntax of STLC. (Actually, this document only defines decorated \emph{foldable} monads, a less powerful but simpler structure, since this is easier to define.)
+
+\section*{The setup}
+
+Throughout this document, we use \coq{monospace font} to represent inductively defined types and their constructors. To describe the DTM structure of STLC's syntax we have to formalize it as an inductive type, but before that we must define type expressions and variables.\footnote{DTMs, as a model of syntax, have no notion of types, so we could just as well work with untyped lambda calculus. DTMs also don't care about how variables are represented, but we don't emphasize that here.}
+
+Let $\coq{typ}$ be some Coq type whose terms represent the simple type expressions of STLC (simple types are base types $A$ or arrow types $A \to B$). The particulars of \coq{typ} are really unimportant, but for completeness we give a possible definition assuming a set of base types has been provided. We call this \coq{typ} to avoid confusion with Coq's universe \coq{Type}.
+
+\begin{figure}[H]
+    \centering
+    \begin{minipage}{.5\textwidth}
+        \centering
+        \begin{prooftree}
+            \AxiomC{$A : \coq{base_typ}$}
+            \UnaryInfC{$\coq{base}\ A : \coq{typ}$}
+        \end{prooftree}
+    \end{minipage}%
+    \begin{minipage}{.5\textwidth}
+        \centering
+        \begin{prooftree}
+            \AxiomC{$\tau_1 : \coq{typ}$}
+            \AxiomC{$\tau_2 : \coq{typ}$}
+            \BinaryInfC{$\coq{arr}\ \tau_1\ \tau_2 : \coq{typ}$}
+        \end{prooftree}
+    \end{minipage}
+\end{figure}
+
+We will implement variables as names, the way one does with pen and paper. This stands in contrast to, for instance, representing variables as natural numbers pointing to their binder (de Bruijn indices). Let $V$ be some type with decidable equality, meaning that there is some function 
+\[\mathrm{dec\_eq} : V \to V \to \coq{bool}\]
+that correctly decides whether two elements of $V$ are equal. Terms of $V$ are called `names.' We write $\mathrm{dec\_eq}\ x_1\ x_2$, a boolean value, as $x_1 == x_2$.
+
+With \coq{typ} and $V$ defined, we can represent the grammar of STLC as an inductive type called \coq{term}. To define the monadic and other structure of this grammar, we let \coq{term} vary in the types of variables, with \coq{term A} representing terms whose variables take values in type $A$. Terms are thought of as trees, and occurrences of variables---values $x$ appearing in a subterm of the form \coq{var}\ $x$---as leaves. Therefore one could also say \coq{term} is defined generically in the type of leaves, a definition we give now.
+
+\begin{figure}[H]
+    \centering
+    \begin{minipage}{.5\textwidth}
+        \centering
+        \begin{prooftree}
+        \AxiomC{$x : A$}
+        \UnaryInfC{$\coq{var}\ x : \coq{term}\ A$}
+        \end{prooftree}
+    \end{minipage}%
+    \begin{minipage}{.5\textwidth}
+        \centering
+        \begin{prooftree}
+            \AxiomC{$t_1 : \coq{term}\ A$}
+            \AxiomC{$t_2 : \coq{term}\ A$}
+            \BinaryInfC{$\coq{ap}\ t_1\ t_2 : \coq{term}\ A$}
+        \end{prooftree}
+    \end{minipage}
+    \begin{minipage}{\textwidth}
+    \centering
+    \vspace{1cm}
+    \begin{prooftree}
+        \AxiomC{$x : V$}
+        \AxiomC{$\tau : \coq{typ}$}
+        \AxiomC{$t : \coq{term}\ A$}
+        \TrinaryInfC{$\coq{lam}\ (x : \tau)\ t : \coq{term}\ A$}
+    \end{prooftree}
+    \end{minipage}
+\end{figure}
+
+Notice $V$ and \coq{typ} always appear in the binder of a lambda abstraction, but leaves in a term of type $\coq{term}\ A$ have type $A$, which may or may not be equal to $V$. If we wanted to develop this theory in full generality we could make binders generic in $V$ as well, but we don't need this much generality for these exercises. We identify the set of concrete terms of STLC with $\coq{term}\ V$, i.e. terms whose leaves are names.
+
+Finally, consider this definition of na\"ive substitution (na\"ive in the sense that it substitutes all occurrences of $x$, rather than only free ones). $\mathrm{subst}\ x\ u\ t$ searches for occurrences of $x$ appearing in $t$ and replaces them with $u$. You should draw some pictures to visualize substitution as a process that visits each leaf and replaces some of them with new subtrees. For these exercises, it is often useful to draw substituted subtrees in a different color.\footnote{This sort of drawing, or at least something similar, can be made rigorous. Since all of the structures we define are monoids in some monoidal category, the equations of DTMs can be expressed with a formal string calculus. This is actually how we first found them. \url{https://ncatlab.org/nlab/show/string+diagram}}
+
+\[\mathrm{subst} : V \to \coq{term}\ V \to \coq{term}\ V \to \coq{term}\ V\]
+
+\begin{align*}
+\mathrm{subst}\ x\ u & \left(\coq{var}\ y\right) =
+\begin{cases*}u & \textrm{if $x == y$} \\ \coq{var}\ y & \textrm{else}
+\end{cases*} \\
+\mathrm{subst}\ x\ u & \left(\coq{ap}\ t_1\ t_2 \right) = \coq{ap}\ \left(
+\mathrm{subst}\ x\ u\ t_1\right)\ \left(
+\mathrm{subst}\ x\ u\ t_2\right)\\
+\mathrm{subst}\ x\ u & \left(\coq{lam}\ (y : \tau)\ t_1\right) = \coq{lam}\ (y : \tau)\ \left(\mathrm{subst}\ x\ u\ t_1\right) \\
+\end{align*}
+
+Our first goal is to reconstruct the definition of substitution abstractly.
+
+\section*{Substitutions by Lifting}
+Instead of defining $\mathrm{subst}$ all at once, we can decompose this operation into two separate ones:
+\begin{enumerate}
+    \item A ``lifting'' operation that recurses on syntax trees and applies some function to the leaves
+    \item A ``local substitution'' operation that takes a leaf and returns a term
+\end{enumerate}
+Substitution can be defined as the lift of local substitution. The definitions are shown below. Convince yourself that this definition of substitution is precisely identical to the previous one. Then complete the exercises.
+
+\begin{align*}
+\mathrm{lift}\ f & \left(\coq{var}\ x\right) = f x \\
+\mathrm{lift}\ f & \left(\coq{ap}\ t_1\ t_2 \right) = \coq{ap}\ \left(\mathrm{lift}\ f\ t_1\right)\ \left(\mathrm{lift}\ f\ t_2\right)\\
+\mathrm{lift}\ f & \left(\coq{lam}\ (x : \tau)\ t_1\right) = \coq{lam}\ (x : \tau) \left(\mathrm{lift}\ f\ t_1\right) 
+\end{align*}
+\begin{align*}
+\mathrm{subst}_\textrm{local}\ x\ u\ & y = \begin{cases*}u & \textrm{if $x == y$} \\ \coq{var}\ y & \textrm{else}
+\end{cases*} \\
+\mathrm{subst}\ x\ u &\ t = \mathrm{lift} \left(\mathrm{subst}_\textrm{local}\ x\ u\right)
+\end{align*}
+
+
+\begin{tcolorbox}[colback=blue!2!white,colframe=blue!70!black]
+    \begin{enumerate}
+        \setcounter{enumi}{0}
+        \item What is the most general type of lift?
+        \item $\mathrm{lift}\ \left(\rule{1cm}{0.15mm}\right)\ t = t$
+        \item $\mathrm{lift}\ f\ \left(\coq{var}\ x\right) = \left(\rule{1cm}{0.15mm}\right)$
+        \item $\mathrm{lift}\ g \left(\mathrm{lift}\ f\ t\right) = \mathrm{lift}\ \left(x \mapsto \rule{2cm}{0.15mm}\right)\ t$
+    \end{enumerate}
+    
+\end{tcolorbox}
+
+Do you recognize these equations? A type constructor $T$ with operations $\mathrm{lift}$ and $\coq{var}$ satisfying the above laws\footnote{See answers at the bottom.} is precisely a monad. In functional programming, for a general monad $T$, $\coq{var}$ is usually called the ``return'' or ``unit'' of $T$. $\mathrm{lift}$ is often seen taking its arguments in the opposite order and then called the ``bind'' of $T$. The `lift' version here is more convenient for doing category theory.
+
+As you may have heard, a monad can be defined as a monoid in the category of endofunctors. You do not have to know anything about this to keep going, but here is why that's interesting: all of the structured monads we study here are precisely monoids in some \emph{sub}category of endofunctors. The choice of subcategory corresponds to extra structure on the monad. This naturally raises questions about what other kinds of monads arise this way. \footnote{(For category theory enthusiasts.) The essential thing is that the subclass of functors contains the identity functor and is closed under composition, so that these form sub-monoidal-categories. The real force of working in the subcategory is that we also restrict attention to some kind of `structure-preserving' natural transformations, which is where the coherence laws come from.}
+
+The next exercise examines decorated monads, monads with an extra ``decoration'' structure that we use to handle variable binding.
+
+\section*{Decorated Lifting}
+In the previous section we could only define na\"ive substitution, which replaces all occurrences of a variable $x$ with some expression. Now we only want to replace \emph{free} occurrences of $x$. To do this, we need to keep track of the binders we encounter as we recurse on the syntax tree. We will redefine $\mathrm{lift}$ to maintain this information, the \emph{binding context}, as a list. With access to the binding context, we can define local substitution to replace a variable $y$ only if $x == y$ and the occurrence is free, meaning it does not occur in the list of bound names. We represent lists with these notations:
+
+\begin{align*}
+l &= \coq{nil} \quad|\quad x\coq{::}l\quad\\ 
+\end{align*}
+
+We introduce a helper function $\mathrm{lift}_\mathrm{core}$ that takes an additional argument $k$ representing the ``current'' context, with the most recently seen bound name at the front of the list. Whenever our recursion encounters a lambda abstraction, the next recursive call is passed the result of pushing the new binder onto the context, which acts like a stack. $\mathrm{lift}$ can then be defined as $\mathrm{lift}_\mathrm{core}$ starting at the root of the tree and the empty context. Where $k {:} \mathrm{list}\ \mathrm{V}$, define $\mathrm{lift}_\mathrm{core} k\ f\ t$ as
+\begin{align*}
+\mathrm{lift}_\mathrm{core}\ \mathrm{k}\ f & \left(\coq{var}\ x\right) = f (\mathrm{k}, x) \\
+\mathrm{lift}_\mathrm{core}\ \mathrm{k}\  f & \left(\coq{ap}\ t_1\ t_2 \right) = \coq{ap}\ \left(\mathrm{lift}_\mathrm{core}\ \mathrm{k}\ f\ t_1\right)\ \left(\mathrm{lift}_\mathrm{core}\ \mathrm{k}\ f\ t_2\right)\\
+\mathrm{lift}_\mathrm{core}\ \mathrm{k}\ f & \left(\coq{lam}\ (x : \tau)\ t_1\right) = \coq{lam}\ (x : \tau)\ \left(\mathrm{lift}_\mathrm{core}\ \left(x\coq{::}k\right)\ f\ t_1\right)
+\end{align*}
+Now define lifting in terms of $\mathrm{lift}_\textrm{core}$, starting from the empty context
+\[
+\mathrm{lift}\ f\ t = \mathrm{lift}_\mathrm{core}\ \coq{nil}\ f\ t \]
+
+As an exercise, draw the tree structure of some STLC terms and visualize how $\mathrm{lift}$ operates. Observe that the value of $k$ at any leaf $\coq{var}\ x$ is precisely the set of binders that occur along the unique path from the leaf to the root. In general, the value of the binding context is particular to each leaf.
+
+Now we define substitution of free variables. The only difference between this and na\"ive substitution is that now we verify that we aren't replacing a variable that appears in the binding context (and thus represents a bound occurrence). Convince yourself that this definition only replaces free occurrences. (Note, this substitution doesn't necessarily avoid capture if $u$ has free variables. Can you fix this?)
+    
+    \begin{align*}
+    \mathrm{freesubst}_\textrm{local}\ x\ u\ & (k, y) = \begin{cases*}u & \textrm{if $x == y$ \textrm{and} $x \notin k$} \\ \coq{var}\ y & \textrm{else}
+    \end{cases*} \\
+    \mathrm{freesubst}\ x\ u &\ t = \mathrm{lift} \left(\mathrm{freesubst}_\textrm{local}\ x\ u\right)
+    \end{align*}
+    
+Now let's investigate whether we can generalize the laws from the earlier section. You may be able to guess the correct answers just by sketching some trees and visualizing these operations.
+
+\begin{tcolorbox}[colback=blue!2!white,colframe=blue!70!black]
+\begin{enumerate}
+    \setcounter{enumi}{4}
+    \item What is the most general type of lift?
+    \item $\mathrm{lift}\ \left(\rule{1cm}{0.15mm}\right)\ t = t$
+    \item $\mathrm{lift}\ f\ \left(\coq{var}\ x\right) = \left(\rule{1cm}{0.15mm}\right)$
+    \item $\mathrm{lift}\ g \left(\mathrm{lift}\ f\ t\right) = \mathrm{lift}\ \left((k, x) \mapsto \rule{2cm}{0.15mm}\right)\ t$\\
+    Hint: 
+    For this one, you may be tempted to write
+    \[\mathrm{lift}\ g\ \left(f (k, x) \right)\]
+    However, this is not correct. Why not? What's the fix?
+\end{enumerate}
+\end{tcolorbox}
+
+
+A type constructor $T$ with operations $\mathrm{lift}$ and $\mathrm{var}$ satisfying the above laws is what we have been calling a \emph{decorated monad}. A monad can be decorated by any monoid. \coq{term} is decorated by \coq{list}\ $V$.
+
+Such a monad is equivalent to a monoid in the category of (what we have been calling) decorated endofunctors. The previous definition can be considered a ``Kleisli-style'' definition, meaning the entire abstraction is given by generalizing the ordinary lift operation from the first section. An equivalent ``algebraic'' definition defines decorated monads as ordinary monads equipped with an operation
+
+\[ \mathrm{decorate}\ : \coq{term}\ A \to \coq{term} \left(\coq{list}\ V \times A\right)
+\]
+
+satisfying some axioms not listed here. The name ``decoration'' refers to the process of visiting each leaf on $t$ and attaching its binding context to it.
+
+\section*{Folding}
+Now for a change of pace. Let us turn back to the ordinary (non-decorated) definition of $\mathrm{lift}$ of type
+
+\[\mathrm{lift} : \forall A B, \left(A \to \coq{term}\ B\right) \to \coq{term}\ A \to \coq{term}\ B
+\]
+
+
+In addition to this lifting, let's consider a (\emph{prima facie}) new kind of operation altogether, a sort of ``aggregation'' operation we call $\mathrm{foldMap}$\footnote{Another name could be ``mapReduce,'' since this operation is essentially at the heart of the MapReduce paradigm. \url{https://en.wikipedia.org/wiki/MapReduce}}. Recall that a monoid is a type $M$ with a ``multiplication'' operation of type $M \to M \to M$ (written infix $x \cdot y$) and a constant $1_M:M$, satisfying
+
+\[x \cdot (y \cdot z) = (x \cdot y) \cdot z \quad\textrm{and}\quad 1_M \cdot x = x = x \cdot 1_M \]
+
+Now let $f{:}A \to M$ be any function whose codomain is a monoid. Informally speaking, $\mathrm{foldMap}\ f\ t$ applies the map $f$ to every leaf occurring in $t$, and then combines all of these values using the monoid operation. For example, if the leaves of $t$ were numbers, we could use this operation to collect their sum, maximum, or other similar aggregates. Since we can use any monoid, $\mathrm{foldMap}$ represents a flexible way of computing or collecting information about the variables that occur in some syntax.
+\begin{align*}
+\mathrm{foldMap}\ f & \left(\coq{var}\ x\right) = f x \\
+\mathrm{foldMap}\ f & \left(\coq{ap}\ t_1\ t_2 \right) =   \left(\mathrm{foldMap}\ t_1\right) \cdot \left(\mathrm{foldMap}\ t_2 \right) \\
+\mathrm{foldMap}\ f & \left(\coq{lam}\ (x : \tau)\ t_1\right) = \mathrm{foldMap}\ f\ t_1
+\end{align*}
+
+One important use of $\mathrm{foldMap}$ is to enumerate the variables of $t$. This is achieved by aggregating with the operation $f {:} V \to \coq{list}\ V$ that maps every element to a singleton list. The return value is the concatenation of these singletons.
+
+\[ \mathrm{tolist}\ t = \mathrm{foldMap}\ \left(x \mapsto \coq{nil::}x\right) t\]
+
+
+It is typically worthwhile to investigate how this sort of operation interacts with the monad structure. The exercises below ask you to determine how $\mathrm{foldMap}$ interacts with $\mathrm{lift}$ and $\coq{var}$, and to consider another curious equation.
+
+\begin{tcolorbox}[colback=blue!2!white,colframe=blue!70!black]
+\begin{enumerate}
+    \setcounter{enumi}{8}
+\item What is the most general type of foldMap?
+\item $\mathrm{foldMap}\ \left(\rule{1cm}{0.15mm}\right) t = 1_M$
+\item $\mathrm{foldMap}\ f\ \left(\coq{var}\ x\right) = \rule{1cm}{0.15mm}$
+\item $\mathrm{foldMap}\ g \left(\mathrm{lift}\ f\ t\right) = \mathrm{foldMap}\ \left(x:{A} \mapsto \rule{2cm}{0.15mm}\right)\ t$
+\end{enumerate}
+\end{tcolorbox}
+    
+Do you see any overtones with the previous sets of equations? A monad $T$ with operation $\mathrm{foldMap}$ satisfying the above laws is called a \emph{foldable monad}\ldots almost. Actually, we must stipulate a law
+\[\mathrm{foldMap}\ \left(\phi \circ f\right) t = \phi \left( \mathrm{foldMap}\ f\ t\right)\]
+where $\phi$ is any monoid homomorphism and $(g \circ f)(x) = g(f(x))$. The first equation above is a special case of this.
+
+A foldable monad can also be defined as a monoid in the category of foldable functors. Unlike decorated monads, foldable monads can't be defined simply by generalizing the type of lift, which is why we have to introduce a new function $\mathrm{foldMap}$. Still, you may have noticed that the previous equations bear a certain resemblance to the other ones we have considered. This can be explained by considering a more potent abstraction known as \emph{traversability}.
+
+\section*{Traversals}
+
+The operation $\mathrm{foldMap}$ is closely related to the strictly more powerful notion of a ``traversal.'' We do not write the definition of traversals here, since it requires defining applicative functors, but traversals can be thought of as a well-behaved iteration principle over the set of leaves occurring in $t$. The extra strength of traversals, rather than folds, is essential to fully capture reasoning about syntax, but this topic is still under investigation.\footnote{Presently it is not completely clear whether ordinary traversals are in fact quite right for this purpose. Officially we have been looking at a stronger condition we have been calling `injective' traversability, which is easier to reason about.} The required coherence between the traversal and the monad seems clear---the remaining unanswered questions of this work seem to rest on properties of traversals in general.
+
+A traversable monad can also be defined as monoid in the category of traversable endofunctors. Similarly to decorated monads, we can define traversable monads as ordinary monads with an extra operation called `traverse,' or in terms of a `lift' operation with a more general type than usual. $\mathrm{foldMap}$ is a special case of this generalized $\mathrm{lift}$ operation, which explains why coherence equations for foldable monads look like the monad laws themselves.
+
+A monad that is both traversable and decorated is called a decorated traversable monad (DTM). DTMs can be defined in terms of an operation `$\mathrm{lift}$' that has a very general type, or as an ordinary monad with special operations $\mathrm{decorate}$ and $\mathrm{traverse}$ satisfying several coherence laws.
+
+\section*{Bonus round: Set membership}
+
+One essential aspect of reasoning about syntax is reasoning about occurrences of variables. To capture this, define $x \in t$ as
+\[x \in t \iff x \in_\mathrm{list}\ \left(\mathrm{tolist}\ t\right)\]
+where $\mathrm{tolist}$ was defined earlier with $\mathrm{foldMap}$ and $x \in_\mathrm{list}\ l$ refers to the obvious notion of what it means to occur in a list. Namely, $x$ occurs in some list $l$ if and only if one of the elements of $l$ is equal to $x$.
+
+Now, in terms of first-order logic, equality $=$, and the $\in$ relation, give characterizations of the following conditions (where $t{:} \coq{term}\ A$). You do not need be formal about this---what do you \emph{expect} to be the right answer?
+
+\begin{tcolorbox}[colback=blue!2!white,colframe=blue!70!black]
+\begin{enumerate}
+    \setcounter{enumi}{12}
+    \item $x \in \left(\coq{var}\ y\right) \iff \rule{1cm}{0.15mm} $
+    \item $x \in \mathrm{lift}\ f\ t \iff \exists\ (y : A) \textrm{ such that } \rule{2cm}{0.15mm}$
+\end{enumerate}
+\end{tcolorbox}
+
+Can you define $x \in t$ in terms of $\mathrm{foldMap}$ without first enumerating the elements of $t$? What $M$ should you use? What monoid operations? Write the $\mathrm{foldMap}$ laws specialized to this case. Do you see any parallels to the laws above?
+
+
+\bibliographystyle{unsrt}
+\bibliography{/home/lawrence/share/work/bibliography/bibliography}
+
+\section*{Answers}
+
+\begin{enumerate}
+    \item $\mathrm{lift} : \forall A B, \left(A \to \coq{term}\ B\right) \to \coq{term}\ A \to \coq{term}\ B$
+    \item $\mathrm{lift}\ \coq{var}\ t = t$
+    \item $\mathrm{lift}\ f\ \left(\coq{var}\ x\right) = f x$
+    \item $\mathrm{lift}\ g \left(\mathrm{lift}\ f\ t\right) = \mathrm{lift}\ \left(x \mapsto \mathrm{lift}\ g \left(f x\right)\right)\ t = \mathrm{lift}\ \left(\mathrm{lift}\ g \circ f\right)$
+    \item $\mathrm{lift} : \forall A B, \left(\coq{list}\ V \times A \to \coq{term}\ B\right) \to \coq{term}\ A \to \coq{term}\ B$
+    \item $\mathrm{lift}\ \left(\coq{var}\ \circ \pi_\mathrm{r} \right)\ t = t$ where $\pi_\mathrm{r}(k, x) = x$
+    \item $\mathrm{lift}\ f\ \left(\coq{var}\ x\right) = f\left(\coq{nil}, x\right)$
+    \item $\mathrm{lift}\ g \left(\mathrm{lift}\ f\ t\right) = \mathrm{lift}\ \left((k, x) \mapsto \mathrm{lift}\ g^\mathrm{+k}\ \left(f(k, x)\right) \right) t$ where $g^\mathrm{+k}(k', v) = g (k'\ \coq{++}\ k, v)$\\
+    Notice we must additionally pass $k$ to $g$, or otherwise $g$ would not observe the entire binding context.
+    \item The type of $\mathrm{foldMap}$, in pseudo-Coq, is as follows: $\forall A, M$ such that $M$ is a monoid, $\left(A \to M\right) \to (\coq{term}\ A \to M)$
+    \item $\mathrm{foldMap}\ \left(x \mapsto 1_M\right) t = 1_M$
+    \item $\mathrm{foldMap}\ f\ \left(\coq{var}\ x\right) = f x$
+    \item $\mathrm{foldMap}\ g \left(\mathrm{lift}\ f\ t\right) = \mathrm{foldMap}\ \left(x:{A} \mapsto \mathrm{foldMap}\ g\ (f x)\right)\ t = \mathrm{foldMap}\ \left(\mathrm{foldMap}\ g \circ f\right)$
+    \item $x \in \left(\coq{var}\ y\right) \iff \left(x=y\right)$
+    \item $x \in \mathrm{lift}\ f\ t \iff \exists\ (y : A) \textrm{ such that } y \in t \textrm{ and } x \in f y$
+    
+    $\in$ can be defined in terms of foldMap using $y \mapsto x = y$, interpreted as a function into monoid on propositions given by disjunction (not conjunction). Using $\mathrm{foldMap}$ with disjunction on propositions is equivalent to existential quantification over the occurrences of $t$.
+\end{enumerate}
+\end{document}

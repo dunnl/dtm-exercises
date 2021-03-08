@@ -1,0 +1,46 @@
+%\usepackage[utf8]{inputenc}
+\usepackage{amsthm}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{bussproofs}
+\usepackage{multicol}
+\usepackage{booktabs} % for much better looking tables
+\usepackage{tocloft} % Pretty Table of contents
+\usepackage{hyperref}
+\usepackage{comment}
+\usepackage{float} % More options for floats
+\usepackage{stmaryrd} % Double brackets
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Floats
+% https://en.wikibooks.org/wiki/LaTeX/Floats,_Figures_and_Captions#Figures_with_borders
+%\floatstyle{boxed} 
+%\restylefloat{figure}
+% ^^^ The single line above was commented out June 12 2019
+% because it created trouble in Org export
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Theorems from AMSTHM
+
+\newtheoremstyle{break}
+  {\topsep}{\topsep}%
+  {\itshape}{}%
+  {\bfseries}{}%
+  {\newline}{}%
+  \theoremstyle{break}
+  
+\newcommand{\alg}{\mathcal{A}}
+\newtheorem{lemma}{Lemma}
+\newtheorem{corollary}{Corollary}
+\newtheorem{conjecture}{Conjecture}
+\newtheorem{ex}{Example}
+\newtheorem{definition}{Definition}
+\newtheorem{observation}{Observation}
+\newtheorem{exercise}{Exercise}
+\newtheorem{theorem}{Theorem}
+\newcommand{\defined}[1]{\emph{#1}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Pretty TOC
+\renewcommand{\cftsecleader}{\cftdotfill{\cftdotsep}}
