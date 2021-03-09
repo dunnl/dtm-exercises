@@ -226,7 +226,7 @@ Now let $f{:}A \to M$ be any function whose codomain is a monoid. Informally spe
 
 One important use of $\mathrm{foldMap}$ is to enumerate the variables of $t$. This is achieved by aggregating with the operation $f {:} V \to \coq{list}\ V$ that maps every element to a singleton list. The return value is the concatenation of these singletons.
 
-\[ \mathrm{tolist}\ t = \mathrm{foldMap}\ \left(x \mapsto \coq{nil::}x\right) t\]
+\[ \mathrm{tolist}\ t = \mathrm{foldMap}\ \left(x \mapsto x\coq{::nil}\right) t\]
 
 
 It is typically worthwhile to investigate how this sort of operation interacts with the monad structure. The exercises below ask you to determine how $\mathrm{foldMap}$ interacts with $\mathrm{lift}$ and $\coq{var}$, and to consider another curious equation.
